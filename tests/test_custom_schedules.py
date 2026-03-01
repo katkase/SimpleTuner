@@ -158,9 +158,10 @@ class TestPolynomialDecayWithWarmup(unittest.TestCase):
         self.assertAlmostEqual(warmup_peaks[-1], 1e-3, places=7)
         self.assertAlmostEqual(scheduler.get_peak_lr(16, base_lr=1e-3), 1e-4, places=7)
 
+        total_steps = 12
         full_lrs = []
-        for _ in range(12):
-            scheduler.step()
+        for step in range(total_steps):
+            scheduler.step(step)
             full_lrs.append(tuple(scheduler.get_last_lr()))
 
         resume_step = 5
@@ -185,7 +186,7 @@ class TestPolynomialDecayWithWarmup(unittest.TestCase):
         resumed_scheduler.last_epoch = resume_step
 
         resumed_lrs = []
-        for _ in range(12 - (resume_step + 1)):
+        for _ in range(total_steps - (resume_step + 1)):
             resumed_scheduler.step()
             resumed_lrs.append(tuple(resumed_scheduler.get_last_lr()))
 
