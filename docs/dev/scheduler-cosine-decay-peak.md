@@ -131,14 +131,45 @@ Minimum required keys:
 - `--learning_rate` -> `lr_max`
 - `--lr_end` -> `lr_end`
 - `--lr_power` -> `lr_power`
-- `--lr_scheduler_T_0` (or equivalent existing key) -> `T_0`
+- `--lr_scheduler_t0` -> `T_0`
 - `--max_train_steps` (or computed total steps) -> `max_steps`
 
 New optional keys:
 - `--lr_warmup_steps` -> `warmup_steps`
 - `--lr_warmup_start` -> `warmup_start_lr` (default `lr_end` or `eta_min`)
 - `--lr_warmup_power` -> `lr_power_warmup` (default 1.0)
-- `--eta_min` optional if ST uses a dedicated key; otherwise default `eta_min = lr_end`.
+- `--eta_min` optional; default `eta_min = lr_end`.
+
+### Usage examples
+
+No warmup (legacy-style peak decay):
+```json
+{
+  "lr_scheduler": "cosine_decay_peak",
+  "learning_rate": 0.0001,
+  "lr_end": 0.00001,
+  "lr_power": 1.0,
+  "lr_scheduler_t0": 250,
+  "lr_warmup_steps": 0,
+  "max_train_steps": 2000
+}
+```
+
+Warmup over half the run (`warmup_steps = max_steps / 2`):
+```json
+{
+  "lr_scheduler": "cosine_decay_peak",
+  "learning_rate": 0.0001,
+  "lr_end": 0.00001,
+  "eta_min": 0.000005,
+  "lr_power": 1.0,
+  "lr_scheduler_t0": 250,
+  "lr_warmup_steps": 1000,
+  "lr_warmup_start": 0.000005,
+  "lr_warmup_power": 1.0,
+  "max_train_steps": 2000
+}
+```
 
 ---
 

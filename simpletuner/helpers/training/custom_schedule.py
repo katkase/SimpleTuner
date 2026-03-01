@@ -386,6 +386,126 @@ class CosineAnnealingHardRestarts(LRScheduler):
                 print("Epoch {}: adjusting learning rate" " of group {} to {:.8e}.".format(epoch_str, group, lr))
 
 
+class CosineDecayPeak(LRScheduler):
+    """Cosine scheduler with fixed minima and a polynomially evolving peak envelope."""
+
+    def __init__(
+        self,
+        optimizer,
+        T_0: int,
+        max_steps: int,
+        lr_end: float,
+        lr_power: float = 1.0,
+        warmup_steps: int = 0,
+        warmup_start_lr: float | None = None,
+        lr_warmup_power: float = 1.0,
+        eta_min: float | None = None,
+        last_step: int = -1,
+        last_epoch: int = -1,
+        verbose: bool = False,
+    ):
+        if T_0 <= 0 or not isinstance(T_0, int):
+            raise ValueError(f"Expected positive integer T_0, but got {T_0}")
+        if max_steps <= 0 or not isinstance(max_steps, int):
+            raise ValueError(f"Expected positive integer max_steps, but got {max_steps}")
+        if lr_end < 0:
+            raise ValueError(f"lr_end must be non-negative, but got {lr_end}")
+        if lr_power <= 0:
+            raise ValueError(f"lr_power must be > 0, but got {lr_power}")
+        if warmup_steps < 0 or not isinstance(warmup_steps, int):
+            raise ValueError(f"Expected non-negative integer warmup_steps, but got {warmup_steps}")
+        if lr_warmup_power <= 0:
+            raise ValueError(f"lr_warmup_power must be > 0, but got {lr_warmup_power}")
+        if eta_min is not None and eta_min < 0:
+            raise ValueError(f"eta_min must be non-negative, but got {eta_min}")
+        if warmup_start_lr is not None and warmup_start_lr < 0:
+            raise ValueError(f"warmup_start_lr must be non-negative, but got {warmup_start_lr}")
+
+        if last_epoch != -1 and last_step != -1:
+            last_epoch = last_step
+        elif last_epoch != -1 and last_step == -1:
+            last_step = last_epoch
+
+        self.T_0 = T_0
+        self.cycle_len = 2 * T_0
+        self.max_steps = max_steps
+        self.lr_end = float(lr_end)
+        self.lr_power = float(lr_power)
+        self.warmup_steps = warmup_steps
+        self.lr_warmup_power = float(lr_warmup_power)
+        self.eta_min = float(self.lr_end if eta_min is None else eta_min)
+        self.warmup_start_lr = (
+            float(min(self.lr_end, self.eta_min)) if warmup_start_lr is None else float(warmup_start_lr)
+        )
+        self.last_step = last_step
+        super().__init__(optimizer=optimizer, last_epoch=last_step)
+
+    @staticmethod
+    def _clamp(value: float, lower: float, upper: float) -> float:
+        return max(lower, min(value, upper))
+
+    def get_peak_lr(self, step: int, base_lr: float | None = None) -> float:
+        lr_max = float(self.base_lrs[0] if base_lr is None else base_lr)
+        step_clamped = min(max(int(step), 0), self.max_steps)
+        warmup_steps_effective = min(self.warmup_steps, self.max_steps)
+
+        if warmup_steps_effective > 0:
+            warmup_progress = self._clamp(step_clamped / warmup_steps_effective, 0.0, 1.0)
+            peak_warm = self.warmup_start_lr + (lr_max - self.warmup_start_lr) * (warmup_progress**self.lr_warmup_power)
+
+            if self.warmup_steps >= self.max_steps or step_clamped < warmup_steps_effective:
+                peak_lr = peak_warm
+            else:
+                remaining = max(self.max_steps - warmup_steps_effective, 1)
+                decay_progress = self._clamp((step_clamped - warmup_steps_effective) / remaining, 0.0, 1.0)
+                peak_lr = self.lr_end + (lr_max - self.lr_end) * ((1.0 - decay_progress) ** self.lr_power)
+        else:
+            progress = self._clamp(step_clamped / self.max_steps, 0.0, 1.0)
+            peak_lr = self.lr_end + (lr_max - self.lr_end) * ((1.0 - progress) ** self.lr_power)
+
+        return max(peak_lr, self.eta_min)
+
+    def get_lr(self):
+        step = max(int(self.last_step), 0)
+        t = step % self.cycle_len
+        phase = t / self.T_0
+        if phase <= 1:
+            alpha = 0.5 * (1 + math.cos(math.pi * phase))
+        else:
+            alpha = 0.5 * (1 + math.cos(math.pi * (2 - phase)))
+
+        lrs = []
+        for base_lr in self.base_lrs:
+            peak_lr = self.get_peak_lr(step=step, base_lr=base_lr)
+            lr = self.eta_min + (peak_lr - self.eta_min) * alpha
+            lr = self._clamp(lr, self.eta_min, peak_lr)
+            lrs.append(lr)
+        return lrs
+
+    def step(self, step=None):
+        if step is None:
+            step = 0 if self.last_step < 0 else self.last_step + 1
+
+        step = int(step)
+        self.last_step = step
+        self.last_epoch = step
+
+        with _enable_get_lr_call(self):
+            for i, (param_group, lr) in enumerate(zip(self.optimizer.param_groups, self.get_lr())):
+                param_group["lr"] = math.floor(lr * 1e9) / 1e9
+                self.print_lr(self.verbose, i, lr, step)
+
+        self._last_lr = [group["lr"] for group in self.optimizer.param_groups]
+
+    def print_lr(self, is_verbose, group, lr, epoch=None):
+        if is_verbose:
+            if epoch is None:
+                print("Adjusting learning rate" " of group {} to {:.8e}.".format(group, lr))
+            else:
+                epoch_str = ("%.2f" if isinstance(epoch, float) else "%.5d") % epoch
+                print("Epoch {}: adjusting learning rate" " of group {} to {:.8e}.".format(epoch_str, group, lr))
+
+
 class Sine(LRScheduler):
     def __init__(self, optimizer, T_0, T_mult=1, eta_min=0, last_step=-1, verbose=False):
         if T_0 <= 0 or not isinstance(T_0, int):
@@ -529,6 +649,31 @@ def get_lr_scheduler(
             T_0=int(args.lr_warmup_steps * accelerator.num_processes),
             T_mult=int(1),
             eta_min=float(args.lr_end),
+            last_step=-1,
+            verbose=os.environ.get("SIMPLETUNER_SCHEDULER_VERBOSE", "false").lower() == "true",
+        )
+    elif args.lr_scheduler == "cosine_decay_peak":
+        logger.info("Using Cosine Decay Peak learning rate scheduler.")
+        from simpletuner.helpers.training.custom_schedule import CosineDecayPeak
+
+        eta_min = getattr(args, "eta_min", None)
+        warmup_start_lr = getattr(args, "lr_warmup_start", None)
+        lr_scheduler_t0 = getattr(args, "lr_scheduler_t0", None)
+        if lr_scheduler_t0 is None:
+            lr_scheduler_t0 = getattr(args, "lr_scheduler_T_0", None)
+        if lr_scheduler_t0 is None:
+            raise ValueError("cosine_decay_peak requires --lr_scheduler_t0.")
+
+        lr_scheduler = CosineDecayPeak(
+            optimizer=optimizer,
+            T_0=int(lr_scheduler_t0 * accelerator.num_processes),
+            max_steps=int(args.max_train_steps * accelerator.num_processes),
+            lr_end=float(args.lr_end),
+            lr_power=float(args.lr_power),
+            warmup_steps=int(args.lr_warmup_steps * accelerator.num_processes),
+            warmup_start_lr=None if warmup_start_lr is None else float(warmup_start_lr),
+            lr_warmup_power=float(getattr(args, "lr_warmup_power", 1.0)),
+            eta_min=None if eta_min is None else float(eta_min),
             last_step=-1,
             verbose=os.environ.get("SIMPLETUNER_SCHEDULER_VERBOSE", "false").lower() == "true",
         )

@@ -131,6 +131,7 @@ def register_training_fields(registry: "FieldRegistry") -> None:
         "linear",
         "sine",
         "cosine",
+        "cosine_decay_peak",
         "cosine_with_restarts",
         "polynomial",
         "constant",
@@ -838,11 +839,97 @@ def register_training_fields(registry: "FieldRegistry") -> None:
             section="learning_rate",
             default_value=0.8,
             validation_rules=[ValidationRule(ValidationRuleType.MIN, value=0.1, message="Power should be positive")],
-            dependencies=[FieldDependency(field="lr_scheduler", operator="equals", value="polynomial", action="show")],
+            dependencies=[
+                FieldDependency(
+                    field="lr_scheduler",
+                    operator="in",
+                    values=["polynomial", "cosine_decay_peak"],
+                    action="show",
+                )
+            ],
             help_text="Power for polynomial decay scheduler",
             tooltip="1.0 = linear decay, 2.0 = quadratic decay. Higher = stays high longer then drops faster.",
             importance=ImportanceLevel.ADVANCED,
             order=6,
+        )
+    )
+
+    registry._add_field(
+        ConfigField(
+            name="lr_scheduler_t0",
+            arg_name="--lr_scheduler_t0",
+            ui_label="Cosine Decay Peak Half-Cycle (T_0)",
+            field_type=FieldType.NUMBER,
+            tab="training",
+            section="learning_rate",
+            default_value=500,
+            validation_rules=[ValidationRule(ValidationRuleType.MIN, value=1, message="T_0 must be >= 1")],
+            dependencies=[
+                FieldDependency(field="lr_scheduler", operator="equals", value="cosine_decay_peak", action="show")
+            ],
+            help_text="Half-cycle length for cosine_decay_peak. Full cycle length is 2 * T_0.",
+            tooltip="Controls oscillation cadence for cosine_decay_peak. Smaller values produce more frequent peaks.",
+            importance=ImportanceLevel.ADVANCED,
+            order=7,
+        )
+    )
+    registry._add_field(
+        ConfigField(
+            name="eta_min",
+            arg_name="--eta_min",
+            ui_label="Cosine Decay Peak Minimum LR (eta_min)",
+            field_type=FieldType.NUMBER,
+            tab="training",
+            section="learning_rate",
+            default_value=None,
+            allow_empty=True,
+            validation_rules=[ValidationRule(ValidationRuleType.MIN, value=0, message="Must be non-negative")],
+            dependencies=[
+                FieldDependency(field="lr_scheduler", operator="equals", value="cosine_decay_peak", action="show")
+            ],
+            help_text="Minimum LR for cosine_decay_peak. If empty, lr_end is used.",
+            tooltip="Sets the fixed trough value for cosine_decay_peak. Leave blank to default to lr_end.",
+            importance=ImportanceLevel.ADVANCED,
+            order=8,
+        )
+    )
+    registry._add_field(
+        ConfigField(
+            name="lr_warmup_start",
+            arg_name="--lr_warmup_start",
+            ui_label="Cosine Decay Peak Warmup Start LR",
+            field_type=FieldType.NUMBER,
+            tab="training",
+            section="learning_rate",
+            default_value=None,
+            allow_empty=True,
+            validation_rules=[ValidationRule(ValidationRuleType.MIN, value=0, message="Must be non-negative")],
+            dependencies=[
+                FieldDependency(field="lr_scheduler", operator="equals", value="cosine_decay_peak", action="show")
+            ],
+            help_text="Warmup starting peak LR for cosine_decay_peak.",
+            tooltip="Leave blank to default to lr_end (or eta_min when lower).",
+            importance=ImportanceLevel.ADVANCED,
+            order=9,
+        )
+    )
+    registry._add_field(
+        ConfigField(
+            name="lr_warmup_power",
+            arg_name="--lr_warmup_power",
+            ui_label="Cosine Decay Peak Warmup Power",
+            field_type=FieldType.NUMBER,
+            tab="training",
+            section="learning_rate",
+            default_value=1.0,
+            validation_rules=[ValidationRule(ValidationRuleType.MIN, value=0.1, message="Power must be positive")],
+            dependencies=[
+                FieldDependency(field="lr_scheduler", operator="equals", value="cosine_decay_peak", action="show")
+            ],
+            help_text="Exponent for warmup envelope when using cosine_decay_peak.",
+            tooltip="1.0 = linear warmup envelope. Higher values warm up more slowly at first.",
+            importance=ImportanceLevel.ADVANCED,
+            order=10,
         )
     )
 

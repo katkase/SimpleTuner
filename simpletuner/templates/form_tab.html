@@ -1213,7 +1213,7 @@ if (!window.hardwareHeroCTA) {
             onFlowShiftChange(value) { const v = parseFloat(value) || 3.0; this.flow_schedule_shift = v; this.updateFormField('flow_schedule_shift', v); },
 
             get showLrEnd() {
-                return ['cosine', 'sine', 'polynomial'].includes(this.lr_scheduler);
+                return ['cosine', 'sine', 'polynomial', 'cosine_decay_peak'].includes(this.lr_scheduler);
             },
 
             resetToDefaults() {
@@ -2233,6 +2233,7 @@ if (!window.hardwareHeroCTA) {
                                     <option value="constant_with_warmup">Constant with Warmup</option>
                                     <option value="linear">Linear Decay</option>
                                     <option value="cosine">Cosine Annealing</option>
+                                    <option value="cosine_decay_peak">Cosine Decay Peak</option>
                                     <option value="cosine_with_restarts">Cosine with Restarts</option>
                                     <option value="sine">Sine Wave</option>
                                     <option value="polynomial">Polynomial Decay</option>

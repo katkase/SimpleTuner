@@ -216,6 +216,7 @@ class WebInterface:
             {"value": "constant", "label": "Constant"},
             {"value": "constant_with_warmup", "label": "Constant with Warmup"},
             {"value": "cosine", "label": "Cosine"},
+            {"value": "cosine_decay_peak", "label": "Cosine Decay Peak"},
             {"value": "cosine_with_restarts", "label": "Cosine with Restarts"},
             {"value": "polynomial", "label": "Polynomial", "selected": True},
             {"value": "linear", "label": "Linear"},
