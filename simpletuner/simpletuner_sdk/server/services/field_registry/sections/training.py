@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from simpletuner.helpers.training.optimizer_param import available_optimizer_keys as _available_optimizer_keys
 
-from ..types import ConfigField, FieldDependency, FieldType, ImportanceLevel, ValidationRule, ValidationRuleType
+from ..types import ConfigField, FieldDependency, FieldType, ImportanceLevel, ParserType, ValidationRule, ValidationRuleType
 
 if TYPE_CHECKING:
     from ..registry import FieldRegistry
@@ -883,6 +883,7 @@ def register_training_fields(registry: "FieldRegistry") -> None:
             section="learning_rate",
             default_value=None,
             allow_empty=True,
+            parser_type=ParserType.FLOAT,
             validation_rules=[ValidationRule(ValidationRuleType.MIN, value=0, message="Must be non-negative")],
             dependencies=[
                 FieldDependency(field="lr_scheduler", operator="equals", value="cosine_decay_peak", action="show")
@@ -903,6 +904,7 @@ def register_training_fields(registry: "FieldRegistry") -> None:
             section="learning_rate",
             default_value=None,
             allow_empty=True,
+            parser_type=ParserType.FLOAT,
             validation_rules=[ValidationRule(ValidationRuleType.MIN, value=0, message="Must be non-negative")],
             dependencies=[
                 FieldDependency(field="lr_scheduler", operator="equals", value="cosine_decay_peak", action="show")

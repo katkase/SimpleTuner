@@ -16,3 +16,12 @@ class TestParserTypeOverride(unittest.TestCase):
         parser = cmd_args.get_argument_parser()
         action = next(action for action in parser._actions if "--optimizer_beta2" in action.option_strings)
         self.assertIs(action.type, float)
+
+    def test_cosine_decay_peak_float_fields_parse_scientific_notation(self):
+        parser = cmd_args.get_argument_parser()
+        eta_action = next(action for action in parser._actions if "--eta_min" in action.option_strings)
+        warmup_start_action = next(action for action in parser._actions if "--lr_warmup_start" in action.option_strings)
+        self.assertIs(eta_action.type, float)
+        self.assertIs(warmup_start_action.type, float)
+        self.assertAlmostEqual(eta_action.type("4e-7"), 4e-7)
+        self.assertAlmostEqual(warmup_start_action.type("4e-7"), 4e-7)
