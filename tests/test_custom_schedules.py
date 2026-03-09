@@ -115,24 +115,33 @@ class TestPolynomialDecayWithWarmup(unittest.TestCase):
             lr_end=1e-4,
             lr_power=1.0,
             warmup_steps=0,
-            eta_min=5e-5,
+            lr_floor=4e-4,
         )
 
         lrs = []
+        peaks = []
+        floors = []
         for step in range(0, 21):
             scheduler.step(step)
             lrs.append(scheduler.get_last_lr()[0])
+            peaks.append(scheduler.get_peak_lr(step, base_lr=1e-3))
+            floors.append(scheduler.get_floor_lr(step))
 
-        # Minima are clamped to eta_min and troughs hit eta_min.
-        self.assertTrue(all(lr >= 5e-5 for lr in lrs))
-        self.assertAlmostEqual(lrs[5], 5e-5, places=7)
+        tolerance = 1e-9
+        self.assertTrue(
+            all(
+                (1e-4 - tolerance) <= floors[i] <= (lrs[i] + tolerance) <= (peaks[i] + tolerance)
+                for i in range(len(lrs))
+            )
+        )
+        self.assertAlmostEqual(floors[0], 4e-4, places=7)
+        self.assertAlmostEqual(lrs[5], floors[5], places=7)
+        self.assertAlmostEqual(floors[-1], 1e-4, places=7)
 
-        # Peak envelope decays from lr_max to lr_end.
-        peak_steps = [0, 10, 20]
-        peak_values = [lrs[i] for i in peak_steps]
-        self.assertTrue(all(peak_values[i] >= peak_values[i + 1] for i in range(len(peak_values) - 1)))
-        self.assertAlmostEqual(peak_values[0], 1e-3, places=7)
-        self.assertAlmostEqual(peak_values[-1], 1e-4, places=7)
+        self.assertTrue(all(peaks[i] >= peaks[i + 1] for i in range(len(peaks) - 1)))
+        self.assertTrue(all(floors[i] >= floors[i + 1] for i in range(len(floors) - 1)))
+        self.assertAlmostEqual(peaks[0], 1e-3, places=7)
+        self.assertAlmostEqual(peaks[-1], 1e-4, places=7)
 
     def test_cosine_decay_peak_warmup_and_resume_smoke(self):
         optimizer = optim.SGD(
@@ -149,14 +158,20 @@ class TestPolynomialDecayWithWarmup(unittest.TestCase):
             lr_power=1.0,
             warmup_steps=8,
             warmup_start_lr=1e-4,
-            lr_warmup_power=1.0,
-            eta_min=1e-4,
+            lr_floor=4e-4,
+            lr_floor_start=1e-4,
         )
 
         warmup_peaks = [scheduler.get_peak_lr(step, base_lr=1e-3) for step in range(0, 9)]
+        warmup_floors = [scheduler.get_floor_lr(step) for step in range(0, 9)]
         self.assertTrue(all(warmup_peaks[i] <= warmup_peaks[i + 1] for i in range(len(warmup_peaks) - 1)))
+        self.assertTrue(all(warmup_floors[i] <= warmup_floors[i + 1] for i in range(len(warmup_floors) - 1)))
         self.assertAlmostEqual(warmup_peaks[-1], 1e-3, places=7)
+        self.assertAlmostEqual(warmup_floors[-1], 4e-4, places=7)
         self.assertAlmostEqual(scheduler.get_peak_lr(16, base_lr=1e-3), 1e-4, places=7)
+        self.assertAlmostEqual(scheduler.get_floor_lr(16), 1e-4, places=7)
+        scheduler.step(4)
+        self.assertAlmostEqual(scheduler.get_last_lr()[0], scheduler.get_floor_lr(4), places=7)
 
         total_steps = 12
         full_lrs = []
@@ -179,8 +194,8 @@ class TestPolynomialDecayWithWarmup(unittest.TestCase):
             lr_power=1.0,
             warmup_steps=8,
             warmup_start_lr=1e-4,
-            lr_warmup_power=1.0,
-            eta_min=1e-4,
+            lr_floor=4e-4,
+            lr_floor_start=1e-4,
         )
         resumed_scheduler.last_step = resume_step
         resumed_scheduler.last_epoch = resume_step
@@ -191,6 +206,23 @@ class TestPolynomialDecayWithWarmup(unittest.TestCase):
             resumed_lrs.append(tuple(resumed_scheduler.get_last_lr()))
 
         self.assertEqual(full_lrs[resume_step + 1 :], resumed_lrs)
+
+    def test_cosine_decay_peak_eta_min_alias_behaves_as_floor_max(self):
+        optimizer = optim.SGD([torch.randn(2, 2, requires_grad=True)], lr=1e-3)
+        scheduler = CosineDecayPeak(
+            optimizer=optimizer,
+            T_0=4,
+            max_steps=16,
+            lr_end=1e-4,
+            lr_power=1.0,
+            warmup_steps=8,
+            warmup_start_lr=1e-4,
+            eta_min=4e-4,
+        )
+
+        self.assertAlmostEqual(scheduler.get_floor_lr(0), 1e-4, places=7)
+        self.assertAlmostEqual(scheduler.get_floor_lr(8), 4e-4, places=7)
+        self.assertAlmostEqual(scheduler.get_floor_lr(16), 1e-4, places=7)
 
 
 if __name__ == "__main__":

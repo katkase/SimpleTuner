@@ -387,7 +387,7 @@ class CosineAnnealingHardRestarts(LRScheduler):
 
 
 class CosineDecayPeak(LRScheduler):
-    """Cosine scheduler with fixed minima and a polynomially evolving peak envelope."""
+    """Cosine scheduler with evolving upper and lower envelopes."""
 
     def __init__(
         self,
@@ -398,7 +398,8 @@ class CosineDecayPeak(LRScheduler):
         lr_power: float = 1.0,
         warmup_steps: int = 0,
         warmup_start_lr: float | None = None,
-        lr_warmup_power: float = 1.0,
+        lr_floor: float | None = None,
+        lr_floor_start: float | None = None,
         eta_min: float | None = None,
         last_step: int = -1,
         last_epoch: int = -1,
@@ -414,12 +415,14 @@ class CosineDecayPeak(LRScheduler):
             raise ValueError(f"lr_power must be > 0, but got {lr_power}")
         if warmup_steps < 0 or not isinstance(warmup_steps, int):
             raise ValueError(f"Expected non-negative integer warmup_steps, but got {warmup_steps}")
-        if lr_warmup_power <= 0:
-            raise ValueError(f"lr_warmup_power must be > 0, but got {lr_warmup_power}")
         if eta_min is not None and eta_min < 0:
             raise ValueError(f"eta_min must be non-negative, but got {eta_min}")
         if warmup_start_lr is not None and warmup_start_lr < 0:
             raise ValueError(f"warmup_start_lr must be non-negative, but got {warmup_start_lr}")
+        if lr_floor is not None and lr_floor < 0:
+            raise ValueError(f"lr_floor must be non-negative, but got {lr_floor}")
+        if lr_floor_start is not None and lr_floor_start < 0:
+            raise ValueError(f"lr_floor_start must be non-negative, but got {lr_floor_start}")
 
         if last_epoch != -1 and last_step != -1:
             last_epoch = last_step
@@ -432,11 +435,9 @@ class CosineDecayPeak(LRScheduler):
         self.lr_end = float(lr_end)
         self.lr_power = float(lr_power)
         self.warmup_steps = warmup_steps
-        self.lr_warmup_power = float(lr_warmup_power)
-        self.eta_min = float(self.lr_end if eta_min is None else eta_min)
-        self.warmup_start_lr = (
-            float(min(self.lr_end, self.eta_min)) if warmup_start_lr is None else float(warmup_start_lr)
-        )
+        self.floor_lr_max = float(lr_floor if lr_floor is not None else (eta_min if eta_min is not None else lr_end))
+        self.warmup_start_lr = float(self.lr_end if warmup_start_lr is None else warmup_start_lr)
+        self.floor_lr_start = float(self.lr_end if lr_floor_start is None else lr_floor_start)
         self.last_step = last_step
         super().__init__(optimizer=optimizer, last_epoch=last_step)
 
@@ -444,26 +445,34 @@ class CosineDecayPeak(LRScheduler):
     def _clamp(value: float, lower: float, upper: float) -> float:
         return max(lower, min(value, upper))
 
-    def get_peak_lr(self, step: int, base_lr: float | None = None) -> float:
-        lr_max = float(self.base_lrs[0] if base_lr is None else base_lr)
+    def _compute_envelope(self, step: int, upper: float, start: float) -> float:
         step_clamped = min(max(int(step), 0), self.max_steps)
         warmup_steps_effective = min(self.warmup_steps, self.max_steps)
 
         if warmup_steps_effective > 0:
             warmup_progress = self._clamp(step_clamped / warmup_steps_effective, 0.0, 1.0)
-            peak_warm = self.warmup_start_lr + (lr_max - self.warmup_start_lr) * (warmup_progress**self.lr_warmup_power)
+            warmup_value = start + (upper - start) * (warmup_progress**self.lr_power)
 
             if self.warmup_steps >= self.max_steps or step_clamped < warmup_steps_effective:
-                peak_lr = peak_warm
+                envelope = warmup_value
             else:
                 remaining = max(self.max_steps - warmup_steps_effective, 1)
                 decay_progress = self._clamp((step_clamped - warmup_steps_effective) / remaining, 0.0, 1.0)
-                peak_lr = self.lr_end + (lr_max - self.lr_end) * ((1.0 - decay_progress) ** self.lr_power)
+                envelope = self.lr_end + (upper - self.lr_end) * ((1.0 - decay_progress) ** self.lr_power)
         else:
             progress = self._clamp(step_clamped / self.max_steps, 0.0, 1.0)
-            peak_lr = self.lr_end + (lr_max - self.lr_end) * ((1.0 - progress) ** self.lr_power)
+            envelope = self.lr_end + (upper - self.lr_end) * ((1.0 - progress) ** self.lr_power)
 
-        return max(peak_lr, self.eta_min)
+        return max(envelope, self.lr_end)
+
+    def get_peak_lr(self, step: int, base_lr: float | None = None) -> float:
+        lr_max = float(self.base_lrs[0] if base_lr is None else base_lr)
+        peak_lr = self._compute_envelope(step=step, upper=lr_max, start=self.warmup_start_lr)
+        return max(peak_lr, self.lr_end)
+
+    def get_floor_lr(self, step: int) -> float:
+        floor_lr = self._compute_envelope(step=step, upper=self.floor_lr_max, start=self.floor_lr_start)
+        return max(floor_lr, self.lr_end)
 
     def get_lr(self):
         step = max(int(self.last_step), 0)
@@ -477,8 +486,10 @@ class CosineDecayPeak(LRScheduler):
         lrs = []
         for base_lr in self.base_lrs:
             peak_lr = self.get_peak_lr(step=step, base_lr=base_lr)
-            lr = self.eta_min + (peak_lr - self.eta_min) * alpha
-            lr = self._clamp(lr, self.eta_min, peak_lr)
+            floor_lr = min(self.get_floor_lr(step=step), peak_lr)
+            floor_lr = self._clamp(floor_lr, self.lr_end, peak_lr)
+            lr = floor_lr + (peak_lr - floor_lr) * alpha
+            lr = self._clamp(lr, floor_lr, peak_lr)
             lrs.append(lr)
         return lrs
 
@@ -658,6 +669,8 @@ def get_lr_scheduler(
 
         eta_min = getattr(args, "eta_min", None)
         warmup_start_lr = getattr(args, "lr_warmup_start", None)
+        lr_floor = getattr(args, "lr_floor", None)
+        lr_floor_start = getattr(args, "lr_floor_start", None)
         lr_scheduler_t0 = getattr(args, "lr_scheduler_t0", None)
         if lr_scheduler_t0 is None:
             lr_scheduler_t0 = getattr(args, "lr_scheduler_T_0", None)
@@ -672,7 +685,8 @@ def get_lr_scheduler(
             lr_power=float(args.lr_power),
             warmup_steps=int(args.lr_warmup_steps * accelerator.num_processes),
             warmup_start_lr=None if warmup_start_lr is None else float(warmup_start_lr),
-            lr_warmup_power=float(getattr(args, "lr_warmup_power", 1.0)),
+            lr_floor=None if lr_floor is None else float(lr_floor),
+            lr_floor_start=None if lr_floor_start is None else float(lr_floor_start),
             eta_min=None if eta_min is None else float(eta_min),
             last_step=-1,
             verbose=os.environ.get("SIMPLETUNER_SCHEDULER_VERBOSE", "false").lower() == "true",

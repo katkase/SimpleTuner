@@ -877,7 +877,7 @@ def register_training_fields(registry: "FieldRegistry") -> None:
         ConfigField(
             name="eta_min",
             arg_name="--eta_min",
-            ui_label="Cosine Decay Peak Minimum LR (eta_min)",
+            ui_label="Cosine Decay Peak Floor Alias (eta_min)",
             field_type=FieldType.NUMBER,
             tab="training",
             section="learning_rate",
@@ -888,8 +888,8 @@ def register_training_fields(registry: "FieldRegistry") -> None:
             dependencies=[
                 FieldDependency(field="lr_scheduler", operator="equals", value="cosine_decay_peak", action="show")
             ],
-            help_text="Minimum LR for cosine_decay_peak. If empty, lr_end is used.",
-            tooltip="Sets the fixed trough value for cosine_decay_peak. Leave blank to default to lr_end.",
+            help_text="Backward-compatible alias for the lower-envelope maximum when using cosine_decay_peak.",
+            tooltip="Use lr_floor for the revised moving-floor scheduler. eta_min is kept as a legacy alias.",
             importance=ImportanceLevel.ADVANCED,
             order=8,
         )
@@ -910,28 +910,72 @@ def register_training_fields(registry: "FieldRegistry") -> None:
                 FieldDependency(field="lr_scheduler", operator="equals", value="cosine_decay_peak", action="show")
             ],
             help_text="Warmup starting peak LR for cosine_decay_peak.",
-            tooltip="Leave blank to default to lr_end (or eta_min when lower).",
+            tooltip="Leave blank to default to lr_end.",
             importance=ImportanceLevel.ADVANCED,
             order=9,
         )
     )
     registry._add_field(
         ConfigField(
-            name="lr_warmup_power",
-            arg_name="--lr_warmup_power",
-            ui_label="Cosine Decay Peak Warmup Power",
+            name="lr_floor",
+            arg_name="--lr_floor",
+            ui_label="Cosine Decay Peak Floor Max",
             field_type=FieldType.NUMBER,
             tab="training",
             section="learning_rate",
-            default_value=1.0,
-            validation_rules=[ValidationRule(ValidationRuleType.MIN, value=0.1, message="Power must be positive")],
+            default_value=None,
+            allow_empty=True,
+            parser_type=ParserType.FLOAT,
+            validation_rules=[ValidationRule(ValidationRuleType.MIN, value=0, message="Must be non-negative")],
             dependencies=[
                 FieldDependency(field="lr_scheduler", operator="equals", value="cosine_decay_peak", action="show")
             ],
-            help_text="Exponent for warmup envelope when using cosine_decay_peak.",
-            tooltip="1.0 = linear warmup envelope. Higher values warm up more slowly at first.",
+            help_text="Maximum value of the moving lower envelope for cosine_decay_peak.",
+            tooltip="If empty, the lower envelope falls back to eta_min or lr_end.",
             importance=ImportanceLevel.ADVANCED,
             order=10,
+        )
+    )
+    registry._add_field(
+        ConfigField(
+            name="lr_warmup_power",
+            arg_name="--lr_warmup_power",
+            ui_label="Cosine Decay Peak Warmup Power (Deprecated)",
+            field_type=FieldType.NUMBER,
+            tab="training",
+            section="learning_rate",
+            default_value=None,
+            allow_empty=True,
+            parser_type=ParserType.FLOAT,
+            validation_rules=[ValidationRule(ValidationRuleType.MIN, value=0, message="Must be non-negative")],
+            dependencies=[
+                FieldDependency(field="lr_scheduler", operator="equals", value="cosine_decay_peak", action="show")
+            ],
+            help_text="Deprecated compatibility option. cosine_decay_peak now uses lr_power for warmup and decay envelopes.",
+            tooltip="Kept only so older configs continue to parse. The scheduler ignores this value.",
+            importance=ImportanceLevel.ADVANCED,
+            order=10,
+        )
+    )
+    registry._add_field(
+        ConfigField(
+            name="lr_floor_start",
+            arg_name="--lr_floor_start",
+            ui_label="Cosine Decay Peak Floor Start",
+            field_type=FieldType.NUMBER,
+            tab="training",
+            section="learning_rate",
+            default_value=None,
+            allow_empty=True,
+            parser_type=ParserType.FLOAT,
+            validation_rules=[ValidationRule(ValidationRuleType.MIN, value=0, message="Must be non-negative")],
+            dependencies=[
+                FieldDependency(field="lr_scheduler", operator="equals", value="cosine_decay_peak", action="show")
+            ],
+            help_text="Warmup starting value for the moving lower envelope.",
+            tooltip="Leave blank to default to lr_end.",
+            importance=ImportanceLevel.ADVANCED,
+            order=12,
         )
     )
 
